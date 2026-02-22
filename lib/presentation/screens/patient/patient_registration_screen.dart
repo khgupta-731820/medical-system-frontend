@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../../core/config/routes.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/constants/color_constants.dart';
-import '../../../core/constants/string_constants.dart';
 import '../../../core/utils/validators.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/patient_provider.dart';
@@ -16,7 +15,8 @@ class PatientRegistrationScreen extends StatefulWidget {
   const PatientRegistrationScreen({super.key});
 
   @override
-  State<PatientRegistrationScreen> createState() => _PatientRegistrationScreenState();
+  State<PatientRegistrationScreen> createState() =>
+      _PatientRegistrationScreenState();
 }
 
 class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
@@ -78,6 +78,28 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
     super.dispose();
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showSuccess(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   void _nextStep() {
     if (_currentStep < 2) {
       bool isValid = false;
@@ -86,33 +108,18 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
         case 0:
           isValid = _accountFormKey.currentState?.validate() ?? false;
           if (isValid && (!_emailVerified || !_phoneVerified)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Please verify both email and phone'),
-                backgroundColor: AppColors.error,
-              ),
-            );
+            _showError('Please verify both email and phone');
             return;
           }
           break;
         case 1:
           isValid = _personalFormKey.currentState?.validate() ?? false;
           if (isValid && _dateOfBirth == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Please select date of birth'),
-                backgroundColor: AppColors.error,
-              ),
-            );
+            _showError('Please select date of birth');
             return;
           }
           if (isValid && _gender == null) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Please select gender'),
-                backgroundColor: AppColors.error,
-              ),
-            );
+            _showError('Please select gender');
             return;
           }
           break;
@@ -142,174 +149,195 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
     }
   }
 
-
+  // FIXED: Email verification
   Future<void> _verifyEmail() async {
-    if (!Validators.email(_emailController.text.trim())!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid email'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    final email = _emailController.text.trim();
+
+    // Check if email is empty
+    if (email.isEmpty) {
+      _showError('Please enter an email address');
+      return;
+    }
+
+    // Validate email format - Validators.email returns null if VALID
+    final emailError = Validators.email(email);
+    if (emailError != null) {
+      _showError(emailError);
       return;
     }
 
     final authProvider = context.read<AuthProvider>();
-    final result = await authProvider.sendEmailOtp(
-      email: _emailController.text.trim(),
-      purpose: 'registration',
-    );
 
-    if (!mounted) return;
+    try {
+      final result = await authProvider.sendEmailOtp(
+        email: email,
+        purpose: 'registration',
+      );
 
-    if (result != null) {
-      _emailSessionToken = result['session_token'];
+      if (!mounted) return;
 
-      final verifyResult = await Navigator.push<Map<String, dynamic>>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OtpVerificationScreen(
-            type: OtpVerificationType.email,
-            identifier: _emailController.text.trim(),
-            sessionToken: _emailSessionToken,
-            purpose: 'registration',
+      if (result != null) {
+        // Safely get session token
+        _emailSessionToken = result['session_token'] as String?;
+
+        // Navigate to OTP screen
+        final verifyResult = await Navigator.push<Map<String, dynamic>>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OtpVerificationScreen(
+              type: OtpVerificationType.email,
+              identifier: email,
+              sessionToken: _emailSessionToken,
+              purpose: 'registration',
+            ),
           ),
-        ),
-      );
+        );
 
-      if (verifyResult != null) {
-        setState(() {
-          _emailOtp = verifyResult['otp'];
-          _emailSessionToken = verifyResult['session_token'];
-          _emailVerified = true;
-        });
+        // Handle OTP verification result
+        if (verifyResult != null && mounted) {
+          setState(() {
+            _emailOtp = verifyResult['otp'] as String?;
+            _emailSessionToken = verifyResult['session_token'] as String?;
+            _emailVerified = true;
+          });
+          _showSuccess('Email verified successfully');
+        }
+      } else {
+        _showError(authProvider.error ?? 'Failed to send OTP');
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.error ?? 'Failed to send OTP'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    } catch (e) {
+      _showError('Error: ${e.toString()}');
     }
   }
 
+  // FIXED: Phone verification
   Future<void> _verifyPhone() async {
-    if (Validators.phone(_phoneController.text.trim()) != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid phone number'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    final phone = _phoneController.text.trim();
+
+    // Check if phone is empty
+    if (phone.isEmpty) {
+      _showError('Please enter a phone number');
+      return;
+    }
+
+    // Validate phone format - Validators.phone returns null if VALID
+    final phoneError = Validators.phone(phone);
+    if (phoneError != null) {
+      _showError(phoneError);
       return;
     }
 
     final authProvider = context.read<AuthProvider>();
-    final result = await authProvider.sendPhoneOtp(
-      phone: _phoneController.text.trim(),
-      purpose: 'registration',
-      sessionToken: _emailSessionToken,
-    );
 
-    if (!mounted) return;
+    try {
+      final result = await authProvider.sendPhoneOtp(
+        phone: phone,
+        purpose: 'registration',
+        sessionToken: _emailSessionToken,
+      );
 
-    if (result != null) {
-      _phoneSessionToken = result['session_token'];
+      if (!mounted) return;
 
-      final verifyResult = await Navigator.push<Map<String, dynamic>>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OtpVerificationScreen(
-            type: OtpVerificationType.phone,
-            identifier: _phoneController.text.trim(),
-            sessionToken: _phoneSessionToken,
-            purpose: 'registration',
+      if (result != null) {
+        // Safely get session token
+        _phoneSessionToken = result['session_token'] as String?;
+
+        // Navigate to OTP screen
+        final verifyResult = await Navigator.push<Map<String, dynamic>>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OtpVerificationScreen(
+              type: OtpVerificationType.phone,
+              identifier: phone,
+              sessionToken: _phoneSessionToken,
+              purpose: 'registration',
+            ),
           ),
-        ),
-      );
+        );
 
-      if (verifyResult != null) {
-        setState(() {
-          _phoneOtp = verifyResult['otp'];
-          _phoneSessionToken = verifyResult['session_token'];
-          _phoneVerified = true;
-        });
+        // Handle OTP verification result
+        if (verifyResult != null && mounted) {
+          setState(() {
+            _phoneOtp = verifyResult['otp'] as String?;
+            _phoneSessionToken = verifyResult['session_token'] as String?;
+            _phoneVerified = true;
+          });
+          _showSuccess('Phone verified successfully');
+        }
+      } else {
+        _showError(authProvider.error ?? 'Failed to send OTP');
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(authProvider.error ?? 'Failed to send OTP'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    } catch (e) {
+      _showError('Error: ${e.toString()}');
     }
   }
 
   Future<void> _submitRegistration() async {
     if (!(_addressFormKey.currentState?.validate() ?? false)) return;
 
-    final patientProvider = context.read<PatientProvider>();
-
-    // Step 1: Register account
-    final registerSuccess = await patientProvider.registerPatient(
-      email: _emailController.text.trim(),
-      phone: _phoneController.text.trim(),
-      password: _passwordController.text,
-      confirmPassword: _confirmPasswordController.text,
-      emailOtp: _emailOtp!,
-      phoneOtp: _phoneOtp!,
-      emailSessionToken: _emailSessionToken,
-      phoneSessionToken: _phoneSessionToken,
-    );
-
-    if (!mounted) return;
-
-    if (!registerSuccess) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(patientProvider.error ?? 'Registration failed'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+    // Validate required OTP data
+    if (_emailOtp == null || _phoneOtp == null) {
+      _showError('Please complete email and phone verification');
       return;
     }
 
-    // Step 2: Complete profile
-    final profileSuccess = await patientProvider.completeRegistration(
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      dateOfBirth: _dateOfBirth!,
-      gender: _gender!,
-      bloodGroup: _bloodGroup,
-      address: _addressController.text.trim(),
-      city: _cityController.text.trim(),
-      state: _stateController.text.trim(),
-      country: _countryController.text.trim(),
-      zipCode: _zipCodeController.text.trim(),
-      emergencyContactName: _emergencyNameController.text.trim(),
-      emergencyContactPhone: _emergencyPhoneController.text.trim(),
-      emergencyContactRelation: _emergencyRelation,
-    );
+    final patientProvider = context.read<PatientProvider>();
 
-    if (!mounted) return;
-
-    if (profileSuccess) {
-      // Initialize auth provider
-      await context.read<AuthProvider>().initialize();
-
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        Routes.patientDashboard,
-            (route) => false,
+    try {
+      // Step 1: Register account
+      final registerSuccess = await patientProvider.registerPatient(
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        password: _passwordController.text,
+        confirmPassword: _confirmPasswordController.text,
+        emailOtp: _emailOtp!,
+        phoneOtp: _phoneOtp!,
+        emailSessionToken: _emailSessionToken,
+        phoneSessionToken: _phoneSessionToken,
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(patientProvider.error ?? 'Failed to complete registration'),
-          backgroundColor: AppColors.error,
-        ),
+
+      if (!mounted) return;
+
+      if (!registerSuccess) {
+        _showError(patientProvider.error ?? 'Registration failed');
+        return;
+      }
+
+      // Step 2: Complete profile
+      final profileSuccess = await patientProvider.completeRegistration(
+        firstName: _firstNameController.text.trim(),
+        lastName: _lastNameController.text.trim(),
+        dateOfBirth: _dateOfBirth!,
+        gender: _gender!,
+        bloodGroup: _bloodGroup,
+        address: _addressController.text.trim(),
+        city: _cityController.text.trim(),
+        state: _stateController.text.trim(),
+        country: _countryController.text.trim(),
+        zipCode: _zipCodeController.text.trim(),
+        emergencyContactName: _emergencyNameController.text.trim(),
+        emergencyContactPhone: _emergencyPhoneController.text.trim(),
+        emergencyContactRelation: _emergencyRelation,
       );
+
+      if (!mounted) return;
+
+      if (profileSuccess) {
+        // Initialize auth provider
+        await context.read<AuthProvider>().initialize();
+
+        if (!mounted) return;
+
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.patientDashboard,
+              (route) => false,
+        );
+      } else {
+        _showError(patientProvider.error ?? 'Failed to complete registration');
+      }
+    } catch (e) {
+      _showError('Error: ${e.toString()}');
     }
   }
 
@@ -347,6 +375,16 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
         backgroundColor: Colors.white,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios),
+          onPressed: () {
+            if (_currentStep > 0) {
+              _previousStep();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
       ),
       body: Column(
         children: [
@@ -371,51 +409,77 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
   }
 
   Widget _buildProgressIndicator() {
+    final steps = ['Account', 'Personal', 'Address'];
+
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.all(20),
-      child: Row(
-        children: List.generate(3, (index) {
-          final isActive = index == _currentStep;
-          final isCompleted = index < _currentStep;
+      child: Column(
+        children: [
+          Row(
+            children: List.generate(3, (index) {
+              final isActive = index == _currentStep;
+              final isCompleted = index < _currentStep;
 
-          return Expanded(
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: isCompleted
-                        ? AppColors.success
-                        : isActive
-                        ? AppColors.primary
-                        : AppColors.border,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Center(
-                    child: isCompleted
-                        ? const Icon(Icons.check, color: Colors.white, size: 18)
-                        : Text(
-                      '${index + 1}',
-                      style: TextStyle(
-                        color: isActive ? Colors.white : AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
+              return Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: isCompleted
+                            ? AppColors.success
+                            : isActive
+                            ? AppColors.primary
+                            : AppColors.border,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Center(
+                        child: isCompleted
+                            ? const Icon(Icons.check,
+                            color: Colors.white, size: 18)
+                            : Text(
+                          '${index + 1}',
+                          style: TextStyle(
+                            color: isActive
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (index < 2)
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color:
+                          isCompleted ? AppColors.success : AppColors.border,
+                        ),
+                      ),
+                  ],
                 ),
-                if (index < 2)
-                  Expanded(
-                    child: Container(
-                      height: 2,
-                      color: isCompleted ? AppColors.success : AppColors.border,
-                    ),
-                  ),
-              ],
-            ),
-          );
-        }),
+              );
+            }),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: steps.map((step) {
+              final index = steps.indexOf(step);
+              final isActive = index == _currentStep;
+              return Text(
+                step,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isActive ? AppColors.primary : AppColors.textSecondary,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -437,7 +501,7 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Enter your email and phone for verification',
               style: TextStyle(color: AppColors.textSecondary),
             ),
@@ -445,6 +509,7 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
 
             // Email
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: CustomTextField(
@@ -458,9 +523,13 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _buildVerifyButton(
-                  verified: _emailVerified,
-                  onPressed: _verifyEmail,
+                Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: _buildVerifyButton(
+                    verified: _emailVerified,
+                    onPressed: _emailVerified ? null : _verifyEmail,
+                    label: 'Verify',
+                  ),
                 ),
               ],
             ),
@@ -468,6 +537,7 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
 
             // Phone
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: CustomTextField(
@@ -481,9 +551,15 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _buildVerifyButton(
-                  verified: _phoneVerified,
-                  onPressed: _emailVerified ? _verifyPhone : null,
+                Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: _buildVerifyButton(
+                    verified: _phoneVerified,
+                    onPressed: _emailVerified && !_phoneVerified
+                        ? _verifyPhone
+                        : null,
+                    label: _emailVerified ? 'Verify' : 'Verify Email First',
+                  ),
                 ),
               ],
             ),
@@ -499,9 +575,12 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
               validator: Validators.password,
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
                 ),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
             const SizedBox(height: 16),
@@ -513,12 +592,16 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
               hint: 'Re-enter password',
               prefixIcon: Icons.lock_outlined,
               obscureText: _obscureConfirmPassword,
-              validator: (value) => Validators.confirmPassword(value, _passwordController.text),
+              validator: (value) =>
+                  Validators.confirmPassword(value, _passwordController.text),
               suffixIcon: IconButton(
                 icon: Icon(
-                  _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  _obscureConfirmPassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
                 ),
-                onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                onPressed: () => setState(
+                        () => _obscureConfirmPassword = !_obscureConfirmPassword),
               ),
             ),
             const SizedBox(height: 32),
@@ -533,19 +616,22 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
     );
   }
 
-  Widget _buildVerifyButton({required bool verified, VoidCallback? onPressed}) {
-    return SizedBox(
-      width: 100,
-      child: verified
-          ? Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+  Widget _buildVerifyButton({
+    required bool verified,
+    VoidCallback? onPressed,
+    String label = 'Verify',
+  }) {
+    if (verified) {
+      return Container(
+        width: 100,
+        height: 48,
         decoration: BoxDecoration(
           color: AppColors.successLight,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Row(
+        child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
+          children: [
             Icon(Icons.check_circle, color: AppColors.success, size: 18),
             SizedBox(width: 4),
             Text(
@@ -554,17 +640,25 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
             ),
           ],
         ),
-      )
-          : Consumer<AuthProvider>(
-        builder: (context, authProvider, _) {
-          return CustomButton(
-            onPressed: onPressed,
+      );
+    }
+
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, _) {
+        return SizedBox(
+          width: 100,
+          child: CustomButton(
+            onPressed: authProvider.isLoading ? null : onPressed,
             isLoading: authProvider.isLoading,
             height: 48,
-            child: const Text('Verify', style: TextStyle(fontSize: 12)),
-          );
-        },
-      ),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 11),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -585,7 +679,7 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Tell us about yourself',
               style: TextStyle(color: AppColors.textSecondary),
             ),
@@ -620,7 +714,7 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
                 child: CustomTextField(
                   controller: TextEditingController(
                     text: _dateOfBirth != null
-                        ? '${_dateOfBirth!.day}/${_dateOfBirth!.month}/${_dateOfBirth!.year}'
+                        ? '${_dateOfBirth!.day.toString().padLeft(2, '0')}/${_dateOfBirth!.month.toString().padLeft(2, '0')}/${_dateOfBirth!.year}'
                         : '',
                   ),
                   label: 'Date of Birth',
@@ -854,7 +948,8 @@ class _PatientRegistrationScreenState extends State<PatientRegistrationScreen> {
                   child: Consumer<PatientProvider>(
                     builder: (context, provider, _) {
                       return CustomButton(
-                        onPressed: provider.isLoading ? null : _submitRegistration,
+                        onPressed:
+                        provider.isLoading ? null : _submitRegistration,
                         isLoading: provider.isLoading,
                         child: const Text('Complete Registration'),
                       );
